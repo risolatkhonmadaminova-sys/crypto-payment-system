@@ -1,0 +1,17 @@
+
+services:
+  db:
+    image: postgres:16
+    container_name: crypto_payment_db
+    restart: always
+    environment:
+      POSTGRES_USER: crypto_user
+      POSTGRES_PASSWORD: crypto_password
+      POSTGRES_DB: crypto_payments
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

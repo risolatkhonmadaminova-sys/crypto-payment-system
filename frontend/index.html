@@ -1,0 +1,1021 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Payment System</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: white;
+            padding: 35px;
+            border-radius: 12px;
+            width: 380px;
+            max-width: calc(100% - 50px);
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        button {
+            padding: 12px 20px;
+            background: #6750a4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #503b87;
+        }
+
+        button:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        input {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 11px;
+            margin: 8px 0;
+            border: 1px solid #ccc;
+            border-radius: 7px;
+        }
+
+        hr {
+            margin: 25px 0;
+        }
+
+        #walletInfo {
+            margin-top: 20px;
+            overflow-wrap: anywhere;
+        }
+
+        .section {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+
+        <h1>Crypto Payment System</h1>
+
+        <!-- CUSTOMER SECTION -->
+
+        <div class="section">
+            <h2>Customer Payment</h2>
+
+            <p>Connect your MetaMask wallet</p>
+
+            <button id="connectButton">
+                Connect MetaMask
+            </button>
+
+            <button id="verifyButton" disabled>
+                Verify Wallet Ownership
+            </button>
+
+            <p id="verificationStatus"></p>
+
+            <input
+                type="text"
+                id="paymentIdInput"
+                placeholder="Enter payment ID"
+            >
+
+            <button id="payButton" disabled>
+                Pay with MetaMask
+            </button>
+
+            <p id="paymentStatus"></p>
+        </div>
+
+        <hr>
+
+        <!-- MERCHANT SECTION -->
+
+        <div class="section">
+            <h2>Merchant Authentication</h2>
+
+            <p>Connect the merchant wallet and sign a verification message.</p>
+
+            <button id="merchantLoginButton">
+                Merchant Login with MetaMask
+            </button>
+
+            <p id="merchantStatus"></p>
+        </div>
+
+        <hr>
+
+        <!-- REFUND SECTION -->
+
+        <div class="section">
+            <h2>Merchant Refund</h2>
+
+            <input
+                type="text"
+                id="refundPaymentIdInput"
+                placeholder="Enter confirmed payment ID"
+            >
+
+            <button id="refundButton" disabled>
+                Refund with MetaMask
+            </button>
+
+            <p id="refundStatus"></p>
+        </div>
+
+        <hr>
+
+        <!-- WALLET INFORMATION -->
+
+        <div id="walletInfo">
+            <p id="status">Wallet not connected</p>
+            <p id="address"></p>
+            <p id="network"></p>
+            <p id="balance"></p>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+
+        const API_URL = "http://127.0.0.1:8000";
+        const SEPOLIA_CHAIN_ID = "0xaa36a7";
+
+        // Customer ID used in this demonstration.
+        const CUSTOMER_ID = 1;
+
+        // ==========================================
+        // HTML ELEMENTS
+        // ==========================================
+
+        const connectButton =
+            document.getElementById("connectButton");
+
+        const verifyButton =
+            document.getElementById("verifyButton");
+
+        const payButton =
+            document.getElementById("payButton");
+
+        const merchantLoginButton =
+            document.getElementById("merchantLoginButton");
+
+        const refundButton =
+            document.getElementById("refundButton");
+
+        const statusText =
+            document.getElementById("status");
+
+        const addressText =
+            document.getElementById("address");
+
+        const networkText =
+            document.getElementById("network");
+
+        const balanceText =
+            document.getElementById("balance");
+
+        const verificationStatusText =
+            document.getElementById("verificationStatus");
+
+        const paymentStatusText =
+            document.getElementById("paymentStatus");
+
+        const merchantStatusText =
+            document.getElementById("merchantStatus");
+
+        const refundStatusText =
+            document.getElementById("refundStatus");
+
+        // ==========================================
+        // APPLICATION STATE
+        // ==========================================
+
+        let connectedWalletAddress = null;
+
+        // Customer authentication
+        let walletVerified = false;
+        let accessToken = null;
+
+        // Merchant authentication
+        let merchantVerified = false;
+        let merchantAccessToken = null;
+        let merchantWalletAddress = null;
+
+        // ==========================================
+        // EVENT LISTENERS
+        // ==========================================
+
+        connectButton.addEventListener(
+            "click",
+            connectWallet
+        );
+
+        verifyButton.addEventListener(
+            "click",
+            verifyWalletOwnership
+        );
+
+        payButton.addEventListener(
+            "click",
+            payWithMetaMask
+        );
+
+        merchantLoginButton.addEventListener(
+            "click",
+            merchantLogin
+        );
+
+        refundButton.addEventListener(
+            "click",
+            refundWithMetaMask
+        );
+
+        // ==========================================
+        // HELPER FUNCTIONS
+        // ==========================================
+
+        async function ensureSepoliaNetwork() {
+            const chainId = await window.ethereum.request({
+                method: "eth_chainId"
+            });
+
+            if (chainId !== SEPOLIA_CHAIN_ID) {
+                throw new Error(
+                    "Please switch MetaMask to Sepolia network."
+                );
+            }
+        }
+
+
+        async function getCurrentWallet() {
+            if (!window.ethereum) {
+                throw new Error("MetaMask is not installed.");
+            }
+
+            const accounts = await window.ethereum.request({
+                method: "eth_requestAccounts"
+            });
+
+            if (!accounts || accounts.length === 0) {
+                throw new Error("No MetaMask account selected.");
+            }
+
+            return accounts[0];
+        }
+
+
+        async function checkWalletStillSelected(expectedAddress) {
+            const accounts = await window.ethereum.request({
+                method: "eth_accounts"
+            });
+
+            if (
+                !accounts.length ||
+                accounts[0].toLowerCase() !==
+                expectedAddress.toLowerCase()
+            ) {
+                throw new Error(
+                    "MetaMask account changed. Please authenticate again."
+                );
+            }
+
+            await ensureSepoliaNetwork();
+        }
+
+
+        async function getErrorMessage(response) {
+            const data = await response.json();
+
+            return data.detail || "Request failed.";
+        }
+
+
+        // ==========================================
+        // CUSTOMER: CONNECT WALLET
+        // ==========================================
+
+        async function connectWallet() {
+            try {
+                if (!window.ethereum) {
+                    throw new Error("MetaMask is not installed.");
+                }
+
+                statusText.textContent =
+                    "Connecting wallet...";
+
+                const walletAddress = await getCurrentWallet();
+
+                connectedWalletAddress = walletAddress;
+
+                // Reset previous authentication.
+                walletVerified = false;
+                accessToken = null;
+
+                merchantVerified = false;
+                merchantAccessToken = null;
+                merchantWalletAddress = null;
+
+                payButton.disabled = true;
+                refundButton.disabled = true;
+                verifyButton.disabled = true;
+
+                addressText.textContent =
+                    "Wallet address: " + walletAddress;
+
+                await ensureSepoliaNetwork();
+
+                networkText.textContent = "Network: Sepolia";
+
+                statusText.textContent =
+                    "Checking wallet balance...";
+
+                const response = await fetch(
+                    `${API_URL}/api/blockchain/balance/${walletAddress}`
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        await getErrorMessage(response)
+                    );
+                }
+
+                const balanceData = await response.json();
+
+                balanceText.textContent =
+                    "Balance: " + balanceData.balance_eth + " ETH";
+
+                statusText.textContent =
+                    "Wallet connected successfully!";
+
+                verifyButton.disabled = false;
+
+            } catch (error) {
+                statusText.textContent =
+                    "Connection error: " + error.message;
+
+                console.error(error);
+            }
+        }
+
+
+        // ==========================================
+        // CUSTOMER: VERIFY WALLET OWNERSHIP
+        // ==========================================
+
+        async function verifyWalletOwnership() {
+            try {
+                if (!connectedWalletAddress) {
+                    throw new Error(
+                        "Please connect your wallet first."
+                    );
+                }
+
+                await checkWalletStillSelected(
+                    connectedWalletAddress
+                );
+
+                verificationStatusText.textContent =
+                    "Creating wallet verification request...";
+
+                // Step 1: Request challenge.
+
+                const challengeResponse = await fetch(
+                    `${API_URL}/api/wallet/challenge`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            customer_id: CUSTOMER_ID,
+                            wallet_address: connectedWalletAddress
+                        })
+                    }
+                );
+
+                if (!challengeResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(challengeResponse)
+                    );
+                }
+
+                const challengeData =
+                    await challengeResponse.json();
+
+                // Step 2: Sign challenge with MetaMask.
+
+                verificationStatusText.textContent =
+                    "Please sign the message in MetaMask...";
+
+                const signature = await window.ethereum.request({
+                    method: "personal_sign",
+                    params: [
+                        challengeData.message,
+                        connectedWalletAddress
+                    ]
+                });
+
+                await checkWalletStillSelected(
+                    connectedWalletAddress
+                );
+
+                // Step 3: Verify signature.
+
+                verificationStatusText.textContent =
+                    "Verifying wallet signature...";
+
+                const verificationResponse = await fetch(
+                    `${API_URL}/api/wallet/verify`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            customer_id: CUSTOMER_ID,
+                            nonce: challengeData.nonce,
+                            signature: signature
+                        })
+                    }
+                );
+
+                if (!verificationResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(verificationResponse)
+                    );
+                }
+
+                const verificationData =
+                    await verificationResponse.json();
+
+                if (!verificationData.access_token) {
+                    throw new Error(
+                        "Backend did not return an access token."
+                    );
+                }
+
+                // Step 4: Store Customer JWT.
+
+                accessToken = verificationData.access_token;
+
+                walletVerified = true;
+
+                payButton.disabled = false;
+
+                verificationStatusText.textContent =
+                    "Wallet ownership verified successfully!";
+
+                console.log("Customer authentication successful.");
+
+            } catch (error) {
+                walletVerified = false;
+                accessToken = null;
+
+                payButton.disabled = true;
+
+                verificationStatusText.textContent =
+                    "Verification failed: " + error.message;
+
+                console.error(error);
+            }
+        }
+
+
+        // ==========================================
+        // CUSTOMER: PAYMENT
+        // ==========================================
+
+        async function payWithMetaMask() {
+            try {
+                if (
+                    !connectedWalletAddress ||
+                    !walletVerified ||
+                    !accessToken
+                ) {
+                    throw new Error(
+                        "Please verify your wallet first."
+                    );
+                }
+
+                const paymentId =
+                    document.getElementById("paymentIdInput")
+                        .value.trim();
+
+                if (!paymentId) {
+                    throw new Error(
+                        "Please enter a payment ID."
+                    );
+                }
+
+                await checkWalletStillSelected(
+                    connectedWalletAddress
+                );
+
+                paymentStatusText.textContent =
+                    "Preparing payment...";
+
+                // Step 1: Prepare transaction.
+
+                const response = await fetch(
+                    `${API_URL}/api/blockchain/prepare-payment/${paymentId}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`
+                        }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        await getErrorMessage(response)
+                    );
+                }
+
+                const transactionData = await response.json();
+
+                // Step 2: Check sender.
+
+                if (
+                    transactionData.from_address.toLowerCase() !==
+                    connectedWalletAddress.toLowerCase()
+                ) {
+                    throw new Error("Wallet address mismatch.");
+                }
+
+                await checkWalletStillSelected(
+                    connectedWalletAddress
+                );
+
+                // Step 3: Convert Wei to hexadecimal.
+
+                const valueHex =
+                    "0x" + BigInt(
+                        transactionData.value_wei
+                    ).toString(16);
+
+                // Step 4: Send transaction.
+
+                paymentStatusText.textContent =
+                    "Please confirm payment in MetaMask...";
+
+                const transactionHash =
+                    await window.ethereum.request({
+                        method: "eth_sendTransaction",
+                        params: [{
+                            from: connectedWalletAddress,
+                            to: transactionData.to_address,
+                            value: valueHex
+                        }]
+                    });
+
+                // Step 5: Save transaction hash.
+
+                paymentStatusText.textContent =
+                    "Transaction submitted. Verifying on blockchain...";
+
+                const saveResponse = await fetch(
+                    `${API_URL}/api/blockchain/save-transaction`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${accessToken}`
+                        },
+                        body: JSON.stringify({
+                            payment_id: paymentId,
+                            transaction_hash: transactionHash
+                        })
+                    }
+                );
+
+                if (!saveResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(saveResponse)
+                    );
+                }
+
+                const saveData = await saveResponse.json();
+
+                paymentStatusText.textContent =
+                    "Payment confirmed successfully!";
+
+                console.log("Payment result:", saveData);
+
+                console.log(
+                    "Etherscan:",
+                    "https://sepolia.etherscan.io/tx/" +
+                    transactionHash
+                );
+
+            } catch (error) {
+                paymentStatusText.textContent =
+                    "Payment error: " + error.message;
+
+                console.error(error);
+            }
+        }
+
+
+        // ==========================================
+        // MERCHANT: LOGIN
+        // ==========================================
+
+        async function merchantLogin() {
+            try {
+                if (!window.ethereum) {
+                    throw new Error("MetaMask is not installed.");
+                }
+
+                merchantStatusText.textContent =
+                    "Connecting merchant wallet...";
+
+                // Step 1: Connect MetaMask.
+
+                const merchantAddress =
+                    await getCurrentWallet();
+
+                await ensureSepoliaNetwork();
+
+                // Reset old Merchant authentication.
+
+                merchantVerified = false;
+                merchantAccessToken = null;
+                merchantWalletAddress = null;
+
+                refundButton.disabled = true;
+
+                // Step 2: Request merchant challenge.
+
+                merchantStatusText.textContent =
+                    "Requesting merchant authentication challenge...";
+
+                const challengeResponse = await fetch(
+                    `${API_URL}/api/merchant/auth/challenge`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            wallet_address: merchantAddress
+                        })
+                    }
+                );
+
+                if (!challengeResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(challengeResponse)
+                    );
+                }
+
+                const challengeData =
+                    await challengeResponse.json();
+
+                // Step 3: Sign challenge.
+
+                merchantStatusText.textContent =
+                    "Please sign the merchant message in MetaMask...";
+
+                const signature = await window.ethereum.request({
+                    method: "personal_sign",
+                    params: [
+                        challengeData.message,
+                        merchantAddress
+                    ]
+                });
+
+                await checkWalletStillSelected(
+                    merchantAddress
+                );
+
+                // Step 4: Verify merchant signature.
+
+                merchantStatusText.textContent =
+                    "Verifying merchant signature...";
+
+                const verificationResponse = await fetch(
+                    `${API_URL}/api/merchant/auth/verify`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            nonce: challengeData.nonce,
+                            signature: signature
+                        })
+                    }
+                );
+
+                if (!verificationResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(verificationResponse)
+                    );
+                }
+
+                const verificationData =
+                    await verificationResponse.json();
+
+                if (!verificationData.access_token) {
+                    throw new Error(
+                        "Backend did not return a Merchant JWT."
+                    );
+                }
+
+                // Step 5: Store Merchant JWT in memory.
+
+                merchantAccessToken =
+                    verificationData.access_token;
+
+                merchantWalletAddress = merchantAddress;
+
+                merchantVerified = true;
+
+                refundButton.disabled = false;
+
+                merchantStatusText.textContent =
+                    "Merchant authenticated successfully!";
+
+                console.log("Merchant authentication successful.");
+
+            } catch (error) {
+                merchantVerified = false;
+                merchantAccessToken = null;
+                merchantWalletAddress = null;
+
+                refundButton.disabled = true;
+
+                merchantStatusText.textContent =
+                    "Merchant login failed: " + error.message;
+
+                console.error(error);
+            }
+        }
+
+
+        // ==========================================
+        // MERCHANT: REFUND
+        // ==========================================
+
+        async function refundWithMetaMask() {
+            try {
+                if (
+                    !merchantVerified ||
+                    !merchantAccessToken ||
+                    !merchantWalletAddress
+                ) {
+                    throw new Error(
+                        "Please log in as merchant first."
+                    );
+                }
+
+                const refundPaymentId =
+                    document.getElementById("refundPaymentIdInput")
+                        .value.trim();
+
+                if (!refundPaymentId) {
+                    throw new Error(
+                        "Please enter a payment ID for refund."
+                    );
+                }
+
+                await checkWalletStillSelected(
+                    merchantWalletAddress
+                );
+
+                refundStatusText.textContent =
+                    "Creating refund record...";
+
+                // Step 1: Create refund in backend.
+
+                const createResponse = await fetch(
+                    `${API_URL}/api/refunds/`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization":
+                                `Bearer ${merchantAccessToken}`
+                        },
+                        body: JSON.stringify({
+                            payment_id: refundPaymentId
+                        })
+                    }
+                );
+
+                if (!createResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(createResponse)
+                    );
+                }
+
+                const refundData = await createResponse.json();
+
+                console.log("Refund record created:", refundData);
+
+                // Step 2: Prepare refund transaction.
+
+                refundStatusText.textContent =
+                    "Preparing refund transaction...";
+
+                const prepareResponse = await fetch(
+                    `${API_URL}/api/refunds/${refundPaymentId}/prepare`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization":
+                                `Bearer ${merchantAccessToken}`
+                        }
+                    }
+                );
+
+                if (!prepareResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(prepareResponse)
+                    );
+                }
+
+                const transactionData =
+                    await prepareResponse.json();
+
+                // Step 3: Check merchant wallet.
+
+                if (
+                    transactionData.from.toLowerCase() !==
+                    merchantWalletAddress.toLowerCase()
+                ) {
+                    throw new Error(
+                        "Merchant wallet address mismatch."
+                    );
+                }
+
+                await checkWalletStillSelected(
+                    merchantWalletAddress
+                );
+
+                // Step 4: Convert Wei to hexadecimal.
+
+                const valueHex =
+                    "0x" + BigInt(
+                        transactionData.value_wei
+                    ).toString(16);
+
+                // Step 5: Send refund through MetaMask.
+
+                refundStatusText.textContent =
+                    "Please confirm refund in MetaMask...";
+
+                const transactionHash =
+                    await window.ethereum.request({
+                        method: "eth_sendTransaction",
+                        params: [{
+                            from: merchantWalletAddress,
+                            to: transactionData.to,
+                            value: valueHex
+                        }]
+                    });
+
+                // Step 6: Save transaction hash.
+
+                refundStatusText.textContent =
+                    "Transaction submitted. Verifying on blockchain...";
+
+                const saveResponse = await fetch(
+                    `${API_URL}/api/refunds/save-transaction`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization":
+                                `Bearer ${merchantAccessToken}`
+                        },
+                        body: JSON.stringify({
+                            payment_id: refundPaymentId,
+                            transaction_hash: transactionHash
+                        })
+                    }
+                );
+
+                if (!saveResponse.ok) {
+                    throw new Error(
+                        await getErrorMessage(saveResponse)
+                    );
+                }
+
+                const saveData = await saveResponse.json();
+
+                refundStatusText.textContent =
+                    "Refund confirmed successfully!";
+
+                console.log("Refund result:", saveData);
+
+                console.log(
+                    "Refund transaction:",
+                    "https://sepolia.etherscan.io/tx/" +
+                    transactionHash
+                );
+
+            } catch (error) {
+                refundStatusText.textContent =
+                    "Refund error: " + error.message;
+
+                console.error("Refund error:", error);
+            }
+        }
+
+
+        // ==========================================
+        // METAMASK ACCOUNT CHANGE
+        // ==========================================
+
+        if (window.ethereum) {
+
+            window.ethereum.on("accountsChanged", () => {
+
+                connectedWalletAddress = null;
+
+                walletVerified = false;
+                accessToken = null;
+
+                merchantVerified = false;
+                merchantAccessToken = null;
+                merchantWalletAddress = null;
+
+                verifyButton.disabled = true;
+                payButton.disabled = true;
+                refundButton.disabled = true;
+
+                statusText.textContent =
+                    "Wallet account changed. Reconnect your wallet.";
+
+                addressText.textContent = "";
+                networkText.textContent = "";
+                balanceText.textContent = "";
+
+                verificationStatusText.textContent =
+                    "Please reconnect and verify your wallet.";
+
+                merchantStatusText.textContent =
+                    "Merchant authentication reset. Please log in again.";
+            });
+
+
+            // ======================================
+            // METAMASK NETWORK CHANGE
+            // ======================================
+
+            window.ethereum.on("chainChanged", () => {
+
+                connectedWalletAddress = null;
+
+                walletVerified = false;
+                accessToken = null;
+
+                merchantVerified = false;
+                merchantAccessToken = null;
+                merchantWalletAddress = null;
+
+                verifyButton.disabled = true;
+                payButton.disabled = true;
+                refundButton.disabled = true;
+
+                statusText.textContent =
+                    "Network changed. Reconnect on Sepolia.";
+
+                networkText.textContent = "";
+
+                verificationStatusText.textContent =
+                    "Customer authentication reset.";
+
+                merchantStatusText.textContent =
+                    "Merchant authentication reset. Please log in again.";
+            });
+        }
+
+    </script>
+</body>
+</html>
